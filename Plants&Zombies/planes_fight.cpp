@@ -58,10 +58,16 @@ plane enemy[Enemy_num];		//敌方飞机
 IMAGE back_img[3];				//存储背景图
 IMAGE img_plane[4];			//存储我方飞机图像
 IMAGE img_emegy[6];			//存储敌方飞机图像
-IMAGE img_bullet[2];		//存储子弹图片
+IMAGE img_bullet[2];		//存储我方子弹图片
+IMAGE img_enemy_bullet;		//存储敌方子弹图片
 
 int enemyFreqs[GUAN_QIA_COUNT] = { 100,50,25 };//敌机创建频率
-bool updata = false;
+bool gameOver = false;	//游戏结束标志
+
+/**************************我方攻击敌方******************/
+/**************************敌方攻击我方*****************/
+//新增敌方子弹
+zd enemy_bullet[Bullet_num]; //敌方子弹
 
 //辅助函数
 void drawPNG(int picture_x, int picture_y, IMAGE* picture)//x为载入图片的X坐标，y为Y坐标
@@ -189,6 +195,7 @@ void init_game() {
 	my_plane.is_alive = 1;
 	my_plane.x = (Height / 2) - (my_plane.width / 2);
 	my_plane.y = Height - my_plane.height;
+	my_plane.hp = 100; //我方飞机血量
 	drawPNG2(my_plane.x, my_plane.y, img_plane);
 	//初始化敌机
 	for (int i = 0; i < Enemy_num; i++) {
@@ -207,6 +214,12 @@ void init_game() {
 		bullet[i].zd_img[1] = img_bullet[1];
 		bullet[i].height = img_bullet[0].getheight();
 		bullet[i].width = img_bullet[0].getwidth();
+	}
+	//初始化敌方子弹
+	for (int i = 0; i < Bullet_num; i++)
+	{
+		enemy_bullet[i].is_alive = 0;
+		enemy_bullet[i].zd_img[0] = img_bullet[0];
 	}
 }
 
@@ -280,12 +293,38 @@ void  is_collide() {
 					int emX2 = emX1 + enemy[j].width * 0.75;
 					int emY1 = enemy[j].y + enemy[j].height / 4;
 					int emY2 = emY1 + enemy[j].height * 0.75;
-
+					//检查子弹和敌机是否碰撞
 					if (is_overlap(zdX1, zdX2, zdY1, zdY2, emX1, emX2, emY1, emY2)) {
 						bullet[i].is_alive = 0; //子弹死亡
 						printf("子弹[%d]碰撞敌机[%d]\n", i, j);
 						enemy[j].hp -= 300; //敌机血量减少
 					}
+				}
+			}
+		}
+	}
+	//检查敌机和英雄飞机是否碰撞
+	for (int j = 0; j < Enemy_num; j++) {
+		if (enemy[j].is_alive) {
+			int emX1 = enemy[j].x + enemy[j].width / 4;
+			int emX2 = emX1 + enemy[j].width * 0.75;
+			int emY1 = enemy[j].y + enemy[j].height / 4;
+			int emY2 = emY1 + enemy[j].height * 0.75;
+			//英雄飞机的碰撞箱范围，二维的
+			int myX1 = my_plane.x + my_plane.width / 4;
+			int myX2 = myX1 + my_plane.width * 0.75;
+			int myY1 = my_plane.y + my_plane.height / 4;
+			int myY2 = myY1 + my_plane.height * 0.75;
+			//检查子弹和敌机是否碰撞
+			if (is_overlap(myX1, myX2, myY1, myY2, emX1, emX2, emY1, emY2)) {
+				my_plane.hp -= 100; //英雄飞机血量减少
+				enemy[j].hp -= 100; //敌机血量减少
+				printf("英雄飞机碰撞敌机[%d]\n", j);
+				if (my_plane.hp <= 0) {
+					my_plane.is_alive = 0; //英雄飞机死亡
+					printf("英雄飞机被击毁\n");
+					gameOver = true; //游戏结束
+					return;
 				}
 			}
 		}
@@ -342,42 +381,42 @@ void Draw_plane() {
 }
 
 //飞机事件
-void plane_event() {
-	switch (toupper(_getch())) {
-		case 'A':
-			/*输入A，意味着要飞机朝左边移动，则y值不变，飞机x值减小*/
-			my_plane.x -= Plane_speed;
-			//控制飞机边界情况，不能让飞机飞出游戏边界
-			if (my_plane.x < 0)my_plane.x = 0;
-			//printf("%c", _getch());
-			break;
-		case 'S':
-			/*输入S，意味着要飞机朝下边移动，则x值不变，飞机y值增大*/
-			my_plane.y += Plane_speed;
-			if (my_plane.y > 650)my_plane.y = 650;
-			break;
-		case 'W':
-			/*输入W，意味着要飞机朝上边移动，则x值不变，飞机y值减小*/
-			my_plane.y -= Plane_speed;
-			if (my_plane.y < 0)my_plane.y = 0;
-			break;
-		case 'D':
-			/*输入D，意味着要飞机朝右边移动，则y值不变，飞机x值增大*/
-			my_plane.x += Plane_speed;
-			if (my_plane.x > 650)my_plane.x = 650;
-			break;
-		case 'Q':
-			/*输入Q，意味着要退出游戏*/
-			return;
-		case ' ':
-			/*输入空格，意味着要发射子弹*/
-			create_bullet(); //创建子弹
-			updata_bullet(); //子弹移动
-			return;
-		default:
-			break;
-		}
-}
+//void plane_event() {
+//	switch (toupper(_getch())) {
+//		case 'A':
+//			/*输入A，意味着要飞机朝左边移动，则y值不变，飞机x值减小*/
+//			my_plane.x -= Plane_speed;
+//			//控制飞机边界情况，不能让飞机飞出游戏边界
+//			if (my_plane.x < 0)my_plane.x = 0;
+//			//printf("%c", _getch());
+//			break;
+//		case 'S':
+//			/*输入S，意味着要飞机朝下边移动，则x值不变，飞机y值增大*/
+//			my_plane.y += Plane_speed;
+//			if (my_plane.y > 650)my_plane.y = 650;
+//			break;
+//		case 'W':
+//			/*输入W，意味着要飞机朝上边移动，则x值不变，飞机y值减小*/
+//			my_plane.y -= Plane_speed;
+//			if (my_plane.y < 0)my_plane.y = 0;
+//			break;
+//		case 'D':
+//			/*输入D，意味着要飞机朝右边移动，则y值不变，飞机x值增大*/
+//			my_plane.x += Plane_speed;
+//			if (my_plane.x > 650)my_plane.x = 650;
+//			break;
+//		case 'Q':
+//			/*输入Q，意味着要退出游戏*/
+//			return;
+//		case ' ':
+//			/*输入空格，意味着要发射子弹*/
+//			create_bullet(); //创建子弹
+//			updata_bullet(); //子弹移动
+//			return;
+//		default:
+//			break;
+//		}
+//}
 
 //修改以后的飞机事件
 void change_plane_event() {
@@ -422,6 +461,8 @@ bool is_enegy_alive() {
 
 /**************************我方攻击敌方******************/
 /**************************敌方攻击我方*****************/
+//新增敌方子弹
+zd enemy_bullet[Enemy_num]; //敌方子弹
 
 
 int main() {
@@ -442,6 +483,7 @@ int main() {
 		is_collide(); //检测碰撞
 		FlushBatchDraw();
 		Sleep(10); //延时10毫秒,避免CPU占用过高
+		if (gameOver) break;
 	}
 	EndBatchDraw();	
 	system("pause");
