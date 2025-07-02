@@ -5,6 +5,7 @@
 //防止VS中认为scanf函数不安全，从而报警告
 #define _CRT_SECURE_NO_WARNINGS
 
+//采用枚举
 enum My {
 	Width = 700,			//宽度
 	Height = 700,			//高度
@@ -52,13 +53,13 @@ void load_image() {
 	loadimage(img_bullet + 1, "shot2.png", 30, 30);
 }
 
-//我方飞机的坐标
-//int x = 350, y = 0;
+//按下wsad后更新飞机位置坐标
 void Draw(IMAGE plane,IMAGE back_img) {
 	putimage(0, 0, &back_img);
 	putimage(my_plane.x ,my_plane.y , &plane);
 }
 
+//初始化游戏函数
 void init_game() {
 	//加载所有图片
 	load_image();
@@ -71,7 +72,9 @@ void init_game() {
 	for (int i = 0; i < Bullet_num; i++) {
 		bullet[i].x = 0;
 		bullet[i].y = 0;
-		bullet[i].is_alive = 1;
+		bullet[i].is_alive = 0;//0代表子弹还没用/没被激活
+		bullet[i].weight = 25;
+		bullet[i].height = 25;
 	}
 	//设置飞机位置,将飞机放在游戏窗口最下面的正中间
 	my_plane.x = (Height/2)-(my_plane.weight/2);
@@ -79,6 +82,7 @@ void init_game() {
 	putimage(my_plane.x, my_plane.y, img_plane);
 }
 
+//比较两张图片是否一致，用于背景图和飞机皮肤的切换
 int compare_img(IMAGE pic_a, IMAGE pic_b) {
 	DWORD* pixes_a = GetImageBuffer(&pic_a);
 	DWORD* pixes_b = GetImageBuffer(&pic_b);
@@ -95,6 +99,43 @@ int compare_img(IMAGE pic_a, IMAGE pic_b) {
 	return 0;
 }
 
+//子弹绘制函数
+void bullet_draw() {
+	for (int i = 0; i < Bullet_num; i++) {
+		//是激活了的就绘制子弹，没激活就不绘制
+		if (bullet[i].is_alive) {
+			putimage(bullet[i].x, bullet[i].y, img_bullet);
+		}
+	}
+}
+
+//子弹激活函数
+void create_bullet() {
+	for (int i = 0; i < Bullet_num; i++) {
+		if (!bullet[i].is_alive) {
+			bullet[i].x = my_plane.x + my_plane.weight / 2;
+			bullet[i].y = my_plane.y;
+			bullet[i].is_alive = 1;//将状态置为1，说明子弹已经被激活
+			break;
+		}
+	}
+}
+
+//子弹移动函数
+void bullet_move() {
+	for (int i = 0; i < Bullet_num; i++) {
+		while(bullet[i].is_alive) {
+			putimage(bullet[i].x, bullet[i].y, img_bullet);
+			bullet[i].y -= Bullet_speed;
+			//子弹超出屏幕范围的情况
+			if (bullet[i].y < 0) {
+				bullet[i].is_alive = 0;//子弹没了/死亡
+			}
+		}
+	}
+}
+
+//飞机行为函数
 void plane_move() {
 	IMAGE now_bk = back_img[0];
 	IMAGE now_plane = img_plane[0];
@@ -123,9 +164,9 @@ void plane_move() {
 			break;
 		case 'J':
 			/*输入J，意味着要飞机要发射子弹攻击敌人*/
-
-
-
+			create_bullet();
+			bullet_draw();
+			bullet_move();
 			break;
 		case 'C':
 			/*输入C，意味着要切换地图*/
@@ -158,6 +199,7 @@ void plane_move() {
 		Draw(now_plane, now_bk);
 	}
 }
+
 
 int main() {
 	//初始化窗口
