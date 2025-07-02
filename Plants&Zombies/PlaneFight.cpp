@@ -59,7 +59,7 @@ IMAGE img_emegy[7];			//存储敌方飞机图像
 IMAGE img_bullet[2];		//存储子弹图片
 
 static IMAGE now_bk = back_img[0];		//用于更改飞机图片和背景图片
-static IMAGE now_plane = img_plane[0];
+static IMAGE now_plane = img_plane[1];
 int enemyFreqs[GUAN_QIA_COUNT] = { 100,50,25 };//敌机创建频率
 bool updata = false;
 
@@ -168,6 +168,7 @@ void init_game() {
 	initgraph(Width, Height);
 	//加载图片
 	load_image();
+	putimage(0, 0, &back_img[0]);
 	//初始化子弹
 	for (int i = 0; i < Bullet_num; i++) {
 		bullet[i].is_alive = 0;
@@ -276,12 +277,12 @@ void fly() {
 void update_plane() {
 	//更新英雄飞机
 	if (my_plane.is_alive) {
-		drawPNG2(my_plane.x, my_plane.y, &now_plane);
+		drawPNG(my_plane.x, my_plane.y, &now_plane);
 	}
 	//更新敌机
 	for (int i = 0; i < Enemy_num; i++) {
 		if (enemy[i].is_alive) {
-			drawPNG2(enemy[i].x, enemy[i].y, &enemy[i].plane_img);
+			drawPNG(enemy[i].x, enemy[i].y, &enemy[i].plane_img);
 		}
 	}
 }
@@ -297,7 +298,7 @@ void plane_event() {
 			my_plane.x -= Plane_speed;
 			//控制飞机边界情况，不能让飞机飞出游戏边界
 			if (my_plane.x < 0)my_plane.x = 0;
-			printf("%c", _getch());
+			//printf("%c", _getch());
 			break;
 		case 'S':
 			/*输入S，意味着要飞机朝下边移动，则x值不变，飞机y值增大*/
