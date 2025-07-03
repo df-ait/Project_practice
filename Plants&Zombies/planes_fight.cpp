@@ -592,6 +592,7 @@ void  is_collide() {
 //创建子弹
 void create_bullet() {
 	//限制子弹发射频率
+	static unsigned long long lastShootTime = 0; //记录上次发射时间
 	unsigned long long currentTime = GetTickCount();
 	if (currentTime - lastShootTime < SHOOT_COOLDOWN || !auto_shoot) {
 		return; // 冷却时间未到，不能发射
@@ -741,10 +742,22 @@ void change_plane_event() {
 		my_plane.x += Plane_speed;
 		if (my_plane.x > 650)my_plane.x = 650;
 	}
-	if (GetAsyncKeyState(' ') & 0x8000) {
+	if (GetAsyncKeyState('Q') & 0x8000) {
 		/*输入空格，意味着要发射子弹*/
-		create_bullet(); //创建子弹
-		updata_bullet(); //子弹移动
+		static long long lastspaceTime = 0; //上一次发射子弹的时间/按下空格键的时间
+		static bool spacePressed = false;
+		if(GetTickCount() - lastspaceTime >= 100 || !spacePressed) { //每隔100毫秒发射一次子弹
+			auto_shoot = !auto_shoot;//状态取反，每按一次空格键，自动射击状态切换一次
+			lastspaceTime = GetTickCount(); //更新上一次发射子弹的时间
+			spacePressed = true; //标记空格键已按下
+		}
+		else {
+			spacePressed = false; 
+		}
+		//if (auto_shoot) {
+		//	create_bullet(); //创建子弹
+		//	//updata_bullet(); //子弹移动
+		//}	
 	}
 }
 
@@ -800,6 +813,7 @@ void updata_enemy_bullet() {
 //每次进入游戏之后都要重置游戏状态
 void reset_game() {
 	cur_score = 0; //重置分数
+	auto_shoot = false; //重置自动射击状态
 	my_plane.height = img_plane[0].getheight();
 	my_plane.width = img_plane[0].getwidth();
 	my_plane.type = HERO;
@@ -881,15 +895,20 @@ int main() {
 					Draw_plane();
 					change_plane_event();
 					time_count += timer();
+					/**********************************************************/
+					create_bullet(); //auto_shooot状态下创建子弹
+					int deltaTime = timer(); //获取时间差	
+					time_count += deltaTime; //累加时间差
+					/*********************************************************/
 					if (time_count >= enemyFreqs[1] || is_enegy_alive()) {
 						create_emegy(); //创建敌机
 						updata_emegy();
 						create_emegy_bullet(); //创建敌方子弹
 						is_collide(); //检测碰撞
-						updata_enemy_bullet(); //敌方子弹移动
 						time_count = 0;
 					}
 					updata_bullet(); //子弹移动
+					updata_enemy_bullet(); //敌方子弹移动
 					is_collide(); //检测碰撞
 					update_boom(); //更新爆炸特效
 					FlushBatchDraw();
