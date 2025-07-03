@@ -5,11 +5,13 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
-//#include <iostream>
-//#include <thread>
+#include <tchar.h>//为了写出同时兼容ANSI(多字节字符集)还有Unicode编码的代码，为了引入TCHAR类型
+
 //防止VS中认为scanf函数不安全，从而报警告
 #define _CRT_SECURE_NO_WARNINGS
 #define GUAN_QIA_COUNT 3
+#define boom_pic_num 6
+#define plane_total_hp  50000
 
 static const int MAX = 100;//最大毫秒
 
@@ -29,8 +31,41 @@ typedef enum {
 	BIG_ENEMY = 3,
 	MIDDLE_ENEMY = 2,
 	SMALL_ENEMY = 1,
-	HERO = 0
+	HERO = 0,
 }plane_type;
+
+enum GameState {
+	MAIN_MENU = 0,	//主菜单
+	PLAYING,		//游戏进行中
+	GAME_OVER,			//游戏暂停
+};
+
+GameState game_status;	//游戏界面状态
+
+typedef struct BOOM
+{
+	IMAGE  boom_png[boom_pic_num] ;	//爆炸特效图片
+	int all_frame = 0;				//总帧数
+	int current_frame = 0;			//当前帧数
+	unsigned int last_time = 0;	//上一帧时间
+	bool is_playing = false;	//是否正在播放
+	int width = 0;				//每一帧的宽度
+	int height = 0;				//每一帧的高度
+	int frame_dalay = 100;		//间隔帧数100ms
+	int x;						//绘制爆炸特效的坐标
+	int y;
+};
+
+BOOM png_boom;		//定义爆炸特效
+
+typedef struct zd {
+	int x = 0;				//横坐标
+	int y = 0;				//纵坐标
+	int is_alive = 0;		//检查是否被使用
+	IMAGE zd_img[2];		//飞机图片
+	int width;				//飞机宽度
+	int height;				//飞机高度
+};
 
 //创建的飞机结构体，包括我方飞机和敌方飞机
 typedef struct plane {
@@ -42,15 +77,7 @@ typedef struct plane {
 	IMAGE plane_img;		//飞机图片
 	int width;				//飞机宽度
 	int height;				//飞机高度
-};
-
-typedef struct zd {
-	int x = 0;				//横坐标
-	int y = 0;				//纵坐标
-	int is_alive = 0;		//检查是否被使用
-	IMAGE zd_img[2];		//飞机图片
-	int width;				//飞机宽度
-	int height;				//飞机高度
+	zd bullet[Bullet_num];	//飞机子弹
 };
 
 plane my_plane;				//我方飞机
@@ -65,11 +92,15 @@ IMAGE img_enemy_bullet;		//存储敌方子弹图片
 
 int enemyFreqs[GUAN_QIA_COUNT] = { 100,50,25 };//敌机创建频率
 bool gameOver = false;	//游戏结束标志
+bool gameStart = true;	//游戏开始标志
+
+//用于限制玩家不能连发子弹
+static unsigned long long lastShootTime = 0;
+const int SHOOT_COOLDOWN = 200; // 300毫秒冷却时间
 
 /**************************我方攻击敌方******************/
 /**************************敌方攻击我方*****************/
 //新增敌方子弹
-zd enemy_bullet[Bullet_num]; //敌方子弹
 
 //辅助函数
 //修改了的版本，增加了对图片的检查和边界处理，把图片是否有效以及缓冲区指针是否有效分开检查了，这样尝试以后得到的报错结果会更准确
@@ -199,6 +230,13 @@ void load_image() {
 	loadimage(img_bullet + 1, "shot_2_10.png");
 	//敌方子弹图片	
 	loadimage(&img_enemy_bullet, "emegy_shot.png");
+	//爆炸特效图片
+	loadimage(png_boom.boom_png, "boom_1.png");
+	loadimage(png_boom.boom_png+1, "boom_2.png");
+	loadimage(png_boom.boom_png+2, "boom_3.png");
+	loadimage(png_boom.boom_png+3, "boom_4.png");
+	loadimage(png_boom.boom_png+4, "boom_5.png");
+	loadimage(png_boom.boom_png+5, "boom_6.png");
 }
 
 //计时器
@@ -217,6 +255,17 @@ int timer() {
 	}
 }
 
+//初始化敌方子弹
+void init_e_bullet(zd* bullet) {
+	for (int i = 0; i < Bullet_num; i++) {
+		(bullet + i)->is_alive = 0;
+		(bullet + i)->height = img_enemy_bullet.getheight();
+		(bullet + i)->width = img_enemy_bullet.getwidth();
+		(bullet + i)->zd_img[0] = img_enemy_bullet;
+		(bullet + i)->zd_img[1] = img_enemy_bullet;
+	}
+}
+
 //初始化游戏
 void init_game() {
 	load_image();
@@ -229,7 +278,8 @@ void init_game() {
 	my_plane.is_alive = 1;
 	my_plane.x = (Height / 2) - (my_plane.width / 2);
 	my_plane.y = Height - my_plane.height;
-	my_plane.hp = 500000; //我方飞机血量
+	my_plane.hp = plane_total_hp; //我方飞机血量
+	//init_bullet(my_plane.bullet);
 	drawPNG2(my_plane.x, my_plane.y, img_plane);
 	//初始化敌机
 	for (int i = 0; i < Enemy_num; i++) {
@@ -238,6 +288,7 @@ void init_game() {
 		enemy[i].plane_img = img_emegy[kind];
 		enemy[i].height = enemy[i].plane_img.getheight();
 		enemy[i].width = enemy[i].plane_img.getwidth();
+		init_e_bullet(enemy[i].bullet);
 		//printf("enemy[%d] width = %d, height = %d\t%d\n", i, enemy[i].width, enemy[i].height,kind);
 		//drawPNG(20+50*i, 20+50*i, &enemy[i].plane_img);
 	}
@@ -249,14 +300,33 @@ void init_game() {
 		bullet[i].height = img_bullet[0].getheight();
 		bullet[i].width = img_bullet[0].getwidth();
 	}
-	//初始化敌方子弹
-	for (int i = 0; i < Bullet_num; i++)
-	{
-		enemy_bullet[i].is_alive = 0;
-		enemy_bullet[i].zd_img[0] = img_bullet[0];
-		enemy_bullet[i].zd_img[1] = img_enemy_bullet;
-		enemy_bullet[i].height = img_enemy_bullet.getheight();
-		enemy_bullet[i].width = img_enemy_bullet.getwidth();
+}
+
+//创建爆炸播放
+void create_boom(int x, int y) {
+	png_boom.all_frame = 6; //总帧数
+	png_boom.current_frame = 0; //当前帧数
+	png_boom.last_time = GetTickCount(); //上一帧时间
+	png_boom.is_playing = true; //开始播放
+	png_boom.width = png_boom.boom_png[0].getwidth();
+	png_boom.height = png_boom.boom_png[0].getheight();
+	png_boom.x = x - png_boom.width/2; //爆炸特效的x坐标
+	png_boom.y = y - png_boom.height / 2; //爆炸特效的y坐标
+}
+
+//更新爆炸特效
+void update_boom() {
+	if (png_boom.is_playing) {
+		unsigned int current_time = GetTickCount();
+		if (current_time - png_boom.last_time >= png_boom.frame_dalay) {
+			png_boom.last_time = current_time;
+			png_boom.current_frame++;
+			//播放结束判断
+			if (png_boom.current_frame >= png_boom.all_frame) {
+				png_boom.is_playing = false; //播放完毕
+				return;
+			}
+		}
 	}
 }
 
@@ -273,7 +343,7 @@ void create_emegy() {
 				enemy[i].type = BIG_ENEMY;
 				enemy[i].hp = 1000; //敌机血量
 			}
-			else if(enemy[i].width>=60 && enemy[i].width < 80)
+			else if (enemy[i].width >= 60 && enemy[i].width < 80)
 			{
 				enemy[i].type = MIDDLE_ENEMY;
 				enemy[i].hp = 600; //敌机血量
@@ -299,14 +369,14 @@ void updata_emegy() {
 			enemy[i].y+= Enemy_speed;
 		}
 		if(enemy[i].hp<=0) {
+			create_boom(enemy[i].x + enemy[i].width / 2, enemy[i].y + enemy[i].height / 2);
 			enemy[i].is_alive = 0; //敌机血量小于等于0，死亡
 			//printf("敌机[%d]被击毁\n", i);
 		}
 	}
 }
 
-//矩阵重叠判断函数
-//设A[x1_1,y1_1,x1_2,y1_2]  B[x2_1, y2_1, x2_2, y2_2].
+//矩阵重叠判断函数,设A[x1_1,y1_1,x1_2,y1_2]  B[x2_1, y2_1, x2_2, y2_2].
 bool is_overlap(int x1_1, int x1_2, int y1_1, int y1_2, int x2_1, int x2_2, int y2_1, int y2_2) {
 	int zx = abs(x1_1 + x1_2 - x2_1 - x2_2);
 	int x = abs(x1_1 - x1_2) + abs(x2_1 - x2_2);
@@ -350,28 +420,29 @@ void  is_collide() {
 	//for (int j = 0; j < Enemy_num; j++)
 	//{//外层循环是敌机
 	//	if (!enemy[j].is_alive) continue; //如果敌机不存在，则跳过
-		for (int i = 0; i < Bullet_num; i++) {
-			//内层循环是单个敌机的每颗子弹
-			if (enemy_bullet[i].is_alive) {
-				int ebX1 = enemy_bullet[i].height / 4 + enemy_bullet[0].x;
-				int ebX2 = ebX1 + enemy_bullet[i].width * 0.75;
-				int ebY1 = enemy_bullet[i].height / 4 + enemy_bullet[0].y;
-				int ebY2 = ebY1 + enemy_bullet[i].height * 0.75;
-				//检查碰撞情况
-				if (is_overlap(ebX1, ebX2, ebY1, ebY2, myX1, myX2, myY1, myY2)) {
-					enemy_bullet[i].is_alive = 0; //敌机子弹死亡
-					my_plane.hp -= 50; //英雄飞机血量减少
-					printf("英雄飞机hp -50");
-					//printf("敌机[%d]子弹碰撞英雄飞机\n", j);
-					if (my_plane.hp <= 0) {
-						my_plane.is_alive = 0; //英雄飞机死亡
-						printf("英雄飞机被击毁\n");
-						gameOver = true; //游戏结束
-						return;
+		for(int i = 0 ; i< Enemy_num ; i++){
+			if (!enemy[i].is_alive) continue; //如果敌机不存在，则跳过
+			for(int j =  0; j < Bullet_num; j++) {
+				if (enemy[i].bullet[j].is_alive) {
+					int em_bulletX1 = enemy[i].bullet[j].x + enemy[i].bullet[j].width / 4;
+					int em_bulletX2 = em_bulletX1 + enemy[i].bullet[j].width * 0.75;
+					int em_bulletY1 = enemy[i].bullet[j].y + enemy[i].bullet[j].height / 4;
+					int em_bulletY2 = em_bulletY1 + enemy[i].bullet[j].height * 0.75;
+					//检查子弹和英雄飞机是否碰撞
+					if (is_overlap(myX1, myX2, myY1, myY2, em_bulletX1, em_bulletX2, em_bulletY1, em_bulletY2)) {
+						my_plane.hp -= 50; //英雄飞机血量减少
+						enemy[i].bullet[j].is_alive = 0; //敌机子弹死亡
+						printf("英雄飞机hp -50\n");
+						if (my_plane.hp <= 0) {
+							my_plane.is_alive = 0; //英雄飞机死亡
+							create_boom(my_plane.x+my_plane.width/2, my_plane.y+my_plane.height/2); //创建爆炸特效
+							printf("英雄飞机被击毁\n");
+							gameOver = true; //游戏结束
+							return;
+						}
 					}
 				}
 			}
-		//}
 	}
 	//检查敌机和英雄飞机是否碰撞
 	for (int j = 0; j < Enemy_num; j++) {
@@ -383,11 +454,12 @@ void  is_collide() {
 			//检查子弹和敌机是否碰撞
 			if (is_overlap(myX1, myX2, myY1, myY2, emX1, emX2, emY1, emY2)) {
 				my_plane.hp -= 20; //英雄飞机血量减少
-				enemy[j].hp -= 30; //敌机血量减少
+				enemy[j].hp -= 20; //敌机血量减少
 				printf("英雄飞机hp -20");
 				//printf("英雄飞机碰撞敌机[%d]\n", j);
 				if (my_plane.hp <= 0) {
 					my_plane.is_alive = 0; //英雄飞机死亡
+					create_boom(my_plane.x + my_plane.width / 2, my_plane.y + my_plane.height / 2);
 					printf("英雄飞机被击毁\n");
 					gameOver = true; //游戏结束
 					return;
@@ -397,11 +469,9 @@ void  is_collide() {
 	}
 }
 
-static unsigned long long lastShootTime = 0;
-const int SHOOT_COOLDOWN = 300; // 300毫秒冷却时间
-
 //创建子弹
 void create_bullet() {
+	//限制子弹发射频率
 	unsigned long long currentTime = GetTickCount();
 	if (currentTime - lastShootTime < SHOOT_COOLDOWN) {
 		return; // 冷却时间未到，不能发射
@@ -432,7 +502,36 @@ void updata_bullet() {
 	}
 }
 
-//更新飞机的位置(移动)
+void draw_blood() {
+	int total_hp_long = 300;		//血条总长度
+	int hp_height = 20;				//血条高度
+	int border = 2;					//血条边框宽度
+	int x = 10, y = 10;				//血条位置
+
+	//绘制血条背景
+	setfillcolor(RGB(100, 100, 100));//灰色背景
+	fillrectangle(x, y, x + total_hp_long, y + hp_height);
+	//计算当前血量的比值
+	float hp_precent = 1.0f;
+	if (my_plane.hp > 0) {
+		hp_precent = (float)my_plane.hp / (float)plane_total_hp;//除以血量总值
+	}
+	//根据血量切换血条颜色
+	COLORREF hp_color;
+	if (hp_precent > 0.6f) hp_color = GREEN;
+	else if (hp_precent <= 0.6f && hp_precent > 0.3f) hp_color = YELLOW;
+	else hp_color = RED;
+	setfillcolor(hp_color);//设置血条颜色
+	fillrectangle(x, y, x + total_hp_long * hp_precent, y + hp_height);
+	//绘制文字标签
+	settextstyle(12, 0, _T("宋体"));//设置文本的字体，方向和大小的函数，EasyX自带
+	settextcolor(WHITE);
+	TCHAR label[32];
+	_stprintf_s(label, _T("%d/%d"),my_plane.hp, plane_total_hp);
+	outtextxy(x+100, y+4, label);
+}
+
+//更新各图像位置(移动)
 void Draw_plane() {
 	//绘制英雄飞机
 	if(my_plane.is_alive) {
@@ -448,63 +547,30 @@ void Draw_plane() {
 			drawPNG2(enemy[i].x, enemy[i].y, &enemy[i].plane_img);
 		}
 	}
-
 	//绘制子弹
 	for(int i = 0; i < Bullet_num; i++) {
 		if (bullet[i].is_alive) {
 			drawPNG2(bullet[i].x, bullet[i].y, &bullet[i].zd_img[0]);
 		}
 	}
-	
 	//绘制敌机子弹
 	for (int i = 0; i < Enemy_num; i++)
 	{
 		if (!enemy[i].is_alive) continue; //如果敌机不存在，则跳过
-		for (int j = 0; j < Bullet_num; j++) {
-			if (enemy_bullet[j].is_alive) {
-				drawPNG2(enemy_bullet[j].x, enemy_bullet[j].y, &img_enemy_bullet);
+		for(int j = 0; j < Bullet_num; j++) {
+			if (enemy[i].bullet[j].is_alive) {
+				drawPNG2(enemy[i].bullet[j].x, enemy[i].bullet[j].y, &img_enemy_bullet);
+				//printf("绘制敌机[%d]子弹 x = %d, y = %d\n", i, enemy_bullet[j].x, enemy_bullet[j].y);
 			}
 		}
 	}
+	//绘制爆炸特效
+	if (png_boom.is_playing) {
+		drawPNG2(png_boom.x, png_boom.y, &png_boom.boom_png[png_boom.current_frame]);
+	}
+	//画血条
+	draw_blood();
 }
-
-//飞机事件
-//void plane_event() {
-//	switch (toupper(_getch())) {
-//		case 'A':
-//			/*输入A，意味着要飞机朝左边移动，则y值不变，飞机x值减小*/
-//			my_plane.x -= Plane_speed;
-//			//控制飞机边界情况，不能让飞机飞出游戏边界
-//			if (my_plane.x < 0)my_plane.x = 0;
-//			//printf("%c", _getch());
-//			break;
-//		case 'S':
-//			/*输入S，意味着要飞机朝下边移动，则x值不变，飞机y值增大*/
-//			my_plane.y += Plane_speed;
-//			if (my_plane.y > 650)my_plane.y = 650;
-//			break;
-//		case 'W':
-//			/*输入W，意味着要飞机朝上边移动，则x值不变，飞机y值减小*/
-//			my_plane.y -= Plane_speed;
-//			if (my_plane.y < 0)my_plane.y = 0;
-//			break;
-//		case 'D':
-//			/*输入D，意味着要飞机朝右边移动，则y值不变，飞机x值增大*/
-//			my_plane.x += Plane_speed;
-//			if (my_plane.x > 650)my_plane.x = 650;
-//			break;
-//		case 'Q':
-//			/*输入Q，意味着要退出游戏*/
-//			return;
-//		case ' ':
-//			/*输入空格，意味着要发射子弹*/
-//			create_bullet(); //创建子弹
-//			updata_bullet(); //子弹移动
-//			return;
-//		default:
-//			break;
-//		}
-//}
 
 //修改以后的飞机事件
 void change_plane_event() {
@@ -557,10 +623,10 @@ void create_emegy_bullet() {
 	{
 		if (!enemy[j].is_alive) continue; //如果敌机不存在，则跳过
 		for (int i = 0; i < Bullet_num; i++) {
-			if (!enemy_bullet[i].is_alive && rand() % 1000 < 2) {//千分之二的概率发射子弹
-				enemy_bullet[i].is_alive = 1;
-				enemy_bullet[i].x = enemy[j].x + enemy[j].width / 2 - enemy_bullet[i].width / 2;
-				enemy_bullet[i].y = enemy[j].y - enemy_bullet[i].height;
+			if (!enemy[j].bullet[i].is_alive && rand() % 1000 < 2) {//千分之二的概率发射子弹
+				enemy[j].bullet[i].is_alive = 1;
+				enemy[j].bullet[i].x = enemy[j].x + enemy[j].width / 2 - enemy[j].bullet[i].width / 2;
+				enemy[j].bullet[i].y = enemy[j].y + enemy[j].bullet[i].height;
 				//printf("敌方子弹[%d] x = %d, y = %d\n", i, enemy_bullet[i].x, enemy_bullet[i].y);
 				break;
 			}
@@ -574,39 +640,41 @@ void updata_enemy_bullet() {
 	{
 		if (!enemy[j].is_alive) continue; //如果敌机不存在，则跳过
 		for (int i = 0; i < Bullet_num; i++) {
-			if (enemy_bullet[i].is_alive) {
-				if( enemy_bullet[i].y > Height-enemy_bullet[i].height) {
-					enemy_bullet[i].is_alive = 0; //子弹飞出屏幕，死亡
+			if (enemy[j].bullet[i].is_alive) {
+				if(enemy[j].bullet[i].y > Height- enemy[j].bullet[i].height) {
+					enemy[j].bullet[i].is_alive = 0; //子弹飞出屏幕，死亡
 					continue;
 				}
-				enemy_bullet[i].y += Enemy_bullet_speed; //敌方子弹向下移动
+				enemy[j].bullet[i].y += Enemy_bullet_speed; //敌方子弹向下移动
 			}
 		}
 	}
 }
 
 int main() {
+	//初始化界面
 	initgraph(Width, Height);
 	init_game();
 	int time_count = 0;
 	BeginBatchDraw();
 	while (1) {
-		Draw_plane();
-		change_plane_event();
-		time_count += timer();
-		if(time_count >= enemyFreqs[1] || is_enegy_alive()) {
-			create_emegy(); //创建敌机
-			updata_emegy();		
-			create_emegy_bullet(); //创建敌方子弹
+			Draw_plane();
+			change_plane_event();
+			time_count += timer();
+			if (time_count >= enemyFreqs[1] || is_enegy_alive()) {
+				create_emegy(); //创建敌机
+				updata_emegy();
+				create_emegy_bullet(); //创建敌方子弹
+				is_collide(); //检测碰撞
+				updata_enemy_bullet(); //敌方子弹移动
+				time_count = 0;
+			}
+			updata_bullet(); //子弹移动
 			is_collide(); //检测碰撞
-			updata_enemy_bullet(); //敌方子弹移动
-			time_count = 0;
-		}
-		updata_bullet(); //子弹移动
-		is_collide(); //检测碰撞
-		FlushBatchDraw();
-		Sleep(10); //延时10毫秒,避免CPU占用过高
-		if (gameOver) break;
+			update_boom(); //更新爆炸特效
+			FlushBatchDraw();
+			Sleep(10); //延时10毫秒,避免CPU占用过高
+			if (gameOver) break;
 	}
 	EndBatchDraw();	
 	system("pause");
